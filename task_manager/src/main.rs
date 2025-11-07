@@ -10,31 +10,20 @@ use serde::{Deserialize, Serialize};
 
 const SAVE_FILE: &str = "tasks.json";
 
-//===========================================================================
-// SECTION 1: TASK DEFINITIONS with PHANTOM TYPES
-// Technique: Phantom Type Parameters
-// We use generic structs `Task<State>` to encode a task's status
-// into its type, preventing invalid operations at compile time.
-//===========================================================================
-
-/// Marker struct for a task that is pending.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Pending;
 
-/// Marker struct for a task that is completed.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Completed;
 
-/// A Task with a generic `State`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task<State> {
     id: u32,
     description: String,
-    #[serde(skip)] // The state is encoded in the AnyTask enum, not here.
+    #[serde(skip)]
     _phantom: PhantomData<State>,
 }
 
-// Methods that only exist on `Task<Pending>`.
 impl Task<Pending> {
     pub fn new(id: u32, description: String) -> Self {
         Task {
@@ -44,8 +33,6 @@ impl Task<Pending> {
         }
     }
 
-    /// Consumes a pending task and returns a new completed task.
-    /// This state transition is enforced by the type system.
     pub fn complete(self) -> Task<Completed> {
         Task {
             id: self.id,
@@ -55,8 +42,6 @@ impl Task<Pending> {
     }
 }
 
-/// An enum to store tasks of different states in the same collection.
-/// This is necessary because `Vec<Task<Pending>>` and `Vec<Task<Completed>>` are different types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum AnyTask {
     Pending(Task<Pending>),
@@ -72,7 +57,6 @@ impl AnyTask {
     }
 }
 
-// Custom Display for pretty-printing tasks.
 impl Display for AnyTask {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -81,13 +65,6 @@ impl Display for AnyTask {
         }
     }
 }
-
-//===========================================================================
-// SECTION 2: COMMAND PARSING
-// Technique: Error Handling & `TryFrom`/`TryInto`
-// We define a custom error type and implement `TryFrom` to safely
-// parse user input strings into structured `Command` enums.
-//===========================================================================
 
 #[derive(Debug)]
 pub enum CommandError {
@@ -143,11 +120,6 @@ impl TryFrom<String> for Command {
     }
 }
 
-//===========================================================================
-// SECTION 3: TASK MANAGER
-// Manages all task-related state and logic.
-//===========================================================================
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct TaskManager {
     tasks: Vec<AnyTask>,
@@ -155,7 +127,6 @@ struct TaskManager {
 }
 
 impl TaskManager {
-    /// Loads tasks from disk, or creates a new manager if the file doesn't exist.
     fn load() -> Self {
         fs::read_to_string(SAVE_FILE)
             .ok()
@@ -166,7 +137,6 @@ impl TaskManager {
             })
     }
 
-    /// Saves the current task list to disk.
     fn save(&self) -> io::Result<()> {
         let json = serde_json::to_string_pretty(self).unwrap();
         fs::write(SAVE_FILE, json)
@@ -179,7 +149,6 @@ impl TaskManager {
         self.next_id += 1;
     }
 
-    /// Finds a pending task, completes it, and updates it in the list.
     fn complete_task(&mut self, id: u32) {
         let task_pos = self
             .tasks
@@ -187,13 +156,9 @@ impl TaskManager {
             .position(|t| t.id() == id && matches!(t, AnyTask::Pending(_)));
 
         if let Some(pos) = task_pos {
-            // Remove the pending task, getting ownership of it
             let old_task = self.tasks.remove(pos);
             if let AnyTask::Pending(pending_task) = old_task {
-                // The magic of phantom types: .complete() consumes the Task<Pending>
-                // and produces a Task<Completed>.
                 let completed_task = pending_task.complete();
-                // Add the new completed task back to the list
                 self.tasks.push(AnyTask::Completed(completed_task));
                 println!("Completed task {}.", id);
             }
@@ -202,21 +167,17 @@ impl TaskManager {
         }
     }
 
-    /// Lists all tasks using HOFs and closures.
-    /// Technique: Higher-Order Functions & Closures
     fn list_tasks(&self) {
         if self.tasks.is_empty() {
             println!("No tasks yet. Add one with 'add <description>'.");
             return;
         }
         println!("---------------- TASKS ----------------");
-        // .iter() is a HOF, .for_each() is a HOF, and |t|... is a closure.
         self.tasks.iter().for_each(|t| println!("{}", t));
         println!("---------------------------------------");
     }
 }
 
-/// Prints the help message.
 fn print_help() {
     println!("\nAvailable Commands:");
     println!("  add <description>    - Add a new task");
@@ -226,17 +187,9 @@ fn print_help() {
     println!("  exit / quit          - Exit the application\n");
 }
 
-//===========================================================================
-// SECTION 4: MAIN APPLICATION LOGIC
-//===========================================================================
-
 fn main() {
-    // Technique: Arc (Atomic Reference Counting)
-    // We wrap the TaskManager in an Arc and a Mutex to allow safe, shared
-    // access across multiple threads (main thread and autosave thread).
     let task_manager = Arc::new(Mutex::new(TaskManager::load()));
 
-    // --- Autosave Thread ---
     let saver_manager = Arc::clone(&task_manager);
     thread::spawn(move || {
         loop {
@@ -244,8 +197,6 @@ fn main() {
             let manager = saver_manager.lock().unwrap();
             if let Err(e) = manager.save() {
                 eprintln!("[AUTOSAVE ERROR] Failed to save tasks: {}", e);
-            } else {
-                 // println!("[AUTOSAVE] Tasks saved successfully."); // Uncomment for debugging
             }
         }
     });
@@ -256,23 +207,20 @@ fn main() {
     let stdin = io::stdin();
     let mut handle = stdin.lock();
 
-    // Technique: `while let`
-    // This provides an ergonomic way to loop over lines from standard input.
-    // The loop continues as long as `read_line` returns `Ok`.
+
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
 
         let mut buffer = String::new();
         match handle.read_line(&mut buffer) {
-            Ok(0) => break, // EOF (Ctrl+D)
+            Ok(0) => break,
             Ok(_) => {
                 let input = buffer.trim();
                 if input.eq_ignore_ascii_case("exit") || input.eq_ignore_ascii_case("quit") {
                     break;
                 }
 
-                // We use `try_into()` which comes from our `TryFrom` implementation
                 match Command::try_from(input.to_string()) {
                     Ok(command) => {
                         let mut manager = task_manager.lock().unwrap();
@@ -293,7 +241,6 @@ fn main() {
         }
     }
 
-    // Final save on exit
     println!("Saving tasks and exiting...");
     task_manager.lock().unwrap().save().expect("Failed to save tasks on exit.");
     println!("Goodbye!");
