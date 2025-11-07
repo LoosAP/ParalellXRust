@@ -70,8 +70,9 @@ function Water() {
             // The .rgb values are mapped to x, y, z directions.
             vec3 normal = texture2D(u_normal_map, animated_uv).rgb * 2.0 - 1.0;
             
-            // Calculate the screen-space UVs. We divide by v_screen_position.w to get normalized coordinates.
-            vec2 screen_uv = v_screen_position.xy / v_screen_position.w;
+            // Calculate the screen-space UVs. We divide by v_screen_position.w to get normalized device coordinates,
+            // then transform from [-1, 1] to [0, 1] to use as texture coordinates.
+            vec2 screen_uv = (v_screen_position.xy / v_screen_position.w) * 0.5 + 0.5;
             
             // Add the ripple distortion to the screen UVs
             vec2 refracted_uv = screen_uv + normal.xy * u_refraction_strength;
