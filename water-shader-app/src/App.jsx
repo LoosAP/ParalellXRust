@@ -20,7 +20,7 @@ function Water() {
 
   normalMap.wrapS = normalMap.wrapT = three.RepeatWrapping;
 
-  useFrame(({ gl, scene, camera, clock }) => {
+  useFrame(({ gl, scene, camera, clock, size }) => {
     ref.current.visible = false;
     gl.setRenderTarget(fbo);
     gl.render(scene, camera);
@@ -28,6 +28,7 @@ function Water() {
     gl.setRenderTarget(null);
 
     ref.current.material.uniforms.u_time.value = clock.getElapsedTime();
+    ref.current.material.uniforms.u_resolution.value.set(size.width * size.pixelRatio, size.height * size.pixelRatio);
   });
 
   return (
@@ -40,6 +41,7 @@ function Water() {
           u_time: { value: 0.0 },
           u_refraction_strength: { value: 0.05 },
           u_water_color: { value: new three.Color('#88c5e1') },
+          u_resolution: { value: new three.Vector2() },
         }}
         vertexShader={`
           varying vec2 vUv;
@@ -58,6 +60,7 @@ function Water() {
           uniform float u_time;
           uniform float u_refraction_strength;
           uniform vec3 u_water_color;
+          uniform vec2 u_resolution;
           
           varying vec2 vUv;
           varying vec4 v_screen_position;
